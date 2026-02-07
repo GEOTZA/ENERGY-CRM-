@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Download, Plus, Trash2, Copy, Check, MessageSquare, X, Edit2, Filter, User, Users, Grid, FileText } from 'lucide-react';
-
+import { exportToExcel } from './utils/exportExcel';
 // ============================================================
 // SUPABASE CONFIG — βάλε τις τιμές από το dashboard
 // https://supabase.com/dashboard/project/[PROJECT_ID]/settings/api
@@ -1391,42 +1391,7 @@ const CustomerList = ({ user, customers, onEdit, onDelete, onExport, onViewComme
       );
     }
 
-    // Export to CSV
-    const headers = [
-      'Όνομα', 'Επώνυμο', 'Κινητό', 'ΑΦΜ', 'Πάροχος',
-      'Διεύθυνση Εγκατάστασης', 'Διεύθυνση Λογαριασμών',
-      'Agent', 'Ημ. Υποβολής', 'Κατάσταση', 'Ημ. Ενεργοποίησης'
-    ];
-    const rows = dataToExport.map(c => [
-      c.name,
-      c.surname,
-      c.phone || '',
-      c.afm,
-      c.provider,
-      c.installationAddress || '',
-      c.billingAddress || '',
-      c.agentName,
-      c.submissionDate,
-      c.status,
-      c.activationDate || ''
-    ]);
-
-    let csv = '\ufeff' + headers.join('\t') + '\n';
-    rows.forEach(row => {
-      csv += row.map(cell => `${cell}`).join('\t') + '\n';
-    });
-
-    const blob = new Blob([csv], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `customers_export_${new Date().toISOString().split('T')[0]}.xlsx`;
-    document.body.appendChild(link);
-    link.click();
-    setTimeout(() => {
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }, 200);
+ 
   };
 
   // Calculate stats
