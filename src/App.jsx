@@ -1450,7 +1450,24 @@ const CustomerList = ({ user, customers, onEdit, onDelete, onExport, onViewComme
           </h2>
           <div className="flex gap-2">
             <button
-              onClick={() => setShowExportModal(true)}
+              onClick={() =>
+  exportToExcel(
+    dataToExport.map(c => ({
+      'Όνομα': c.name,
+      'Επώνυμο': c.surname,
+      'Κινητό': c.phone || '',
+      'ΑΦΜ': c.afm,
+      'Πάροχος': c.provider,
+      'Διεύθυνση Εγκατάστασης': c.installationAddress || '',
+      'Διεύθυνση Λογαριασμών': c.billingAddress || '',
+      'Agent': c.agentName,
+      'Ημ. Υποβολής': c.submissionDate,
+      'Κατάσταση': c.status,
+      'Ημ. Ενεργοποίησης': c.activationDate || ''
+    })),
+    'customers'
+  )
+}
               className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-xl hover:bg-green-700 transition-all font-medium text-sm"
             >
               <Download size={18} />
