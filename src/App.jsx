@@ -5,8 +5,8 @@ import { exportToExcel } from './utils/exportExcel';
 // SUPABASE CONFIG — βάλε τις τιμές από το dashboard
 // https://supabase.com/dashboard/project/[PROJECT_ID]/settings/api
 // ============================================================
-const SUPABASE_URL = '';   // π.χ. https://abcdefghijk.supabase.co
-const SUPABASE_KEY = '';   // anon key
+const SUPABASE_URL = 'https://svrwybfxtcibqwijltwh.supabase.co';   // π.χ. https://abcdefghijk.supabase.co
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2cnd5YmZ4dGNpYnF3aWpsdHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0NzUzNDcsImV4cCI6MjA4NjA1MTM0N30.gYO5vyfV0KKUc3qWbUx5_eGW7q7BB5T7NtkOBs3LQWc';   // anon key
 
 const cloudEnabled = () => !!(SUPABASE_URL && SUPABASE_KEY);
 
@@ -3076,3 +3076,4 @@ export default function EnergyCRM() {
 
   return <Dashboard user={user} onLogout={() => setUser(null)} cloudStatus={cloudStatus} onExportJSON={handleExportJSON} />;
 }
+
