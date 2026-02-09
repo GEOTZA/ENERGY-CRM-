@@ -1,35 +1,21 @@
 import React, { useState, useEffect } from 'react'
+import { createClient } from '@supabase/supabase-js'
 
 // ============================================================
 // SUPABASE CONFIG
 // ============================================================
-const SUPABASE_URL = 'https://svrwybfxtcibqwijltwh.supabase.co
-';
+const SUPABASE_URL = 'https://svrwybfxtcibqwijltwh.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2cnd5YmZ4dGNpYnF3aWpsdHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0NzUzNDcsImV4cCI6MjA4NjA1MTM0N30.gYO5vyfV0KKUc3qWbUx5_eGW7q7BB5T7NtkOBs3LQWc';
-const cloudEnabled = () => !!(SUPABASE_URL && SUPABASE_KEY);
 
-const sb = async (path, method = 'GET', body = null) => {
-  if (!cloudEnabled()) return null;
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-      method,
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation'
-      },
-      ...(body ? { body: JSON.stringify(body) } : {})
-    });
-    if (!res.ok) return null;
-    const text = await res.text();
-    return text ? JSON.parse(text) : [];
-  } catch (e) {
-    console.warn('Supabase error:', e);
-    return null;
-  }
-};
+const supabase = SUPABASE_URL && SUPABASE_KEY 
+  ? createClient(SUPABASE_URL, SUPABASE_KEY)
+  : null;
 
+const cloudEnabled = () => !!supabase;
+
+// ============================================================
+// DEMO DATA & SYNC
+// ============================================================
 function initDemoData() {
   if (!localStorage.getItem('crm_users')) {
     const users = [
@@ -43,25 +29,48 @@ function initDemoData() {
 
 async function syncToCloud() {
   if (!cloudEnabled()) return;
-  const existing = await sb('users');
-  if (existing && existing.length > 0) {
-    localStorage.setItem('crm_users', JSON.stringify(existing));
-  } else {
-    const users = JSON.parse(localStorage.getItem('crm_users') || '[]');
-    for (const u of users) {
-      await sb('users', 'POST', u);
+  
+  try {
+    const { data: existing, error } = await supabase
+      .from('users')
+      .select('*');
+    
+    if (error) {
+      console.warn('Supabase sync error:', error);
+      return;
     }
+    
+    if (existing && existing.length > 0) {
+      localStorage.setItem('crm_users', JSON.stringify(existing));
+    } else {
+      const users = JSON.parse(localStorage.getItem('crm_users') || '[]');
+      for (const u of users) {
+        await supabase.from('users').insert(u);
+      }
+    }
+  } catch (e) {
+    console.warn('Sync failed:', e);
   }
 }
 
 async function login(email, password) {
   let users = null;
+  
   if (cloudEnabled()) {
-    users = await sb(`users?email=eq.${encodeURIComponent(email)}`);
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email);
+    
+    if (!error && data) {
+      users = data;
+    }
   }
+  
   if (!users || users.length === 0) {
     users = JSON.parse(localStorage.getItem('crm_users') || '[]');
   }
+  
   return users.find(u => u.email === email && u.password === password) || null;
 }
 
@@ -166,7 +175,6 @@ function Dashboard({ user, onLogout, cloudStatus, onExport }) {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb', padding: '2rem' }}>
       <div style={{ maxWidth: '64rem', margin: '0 auto' }}>
-        {/* Header */}
         <div style={{ 
           background: 'linear-gradient(to right, #0f172a, #334155)', 
           borderRadius: '1rem', 
@@ -207,7 +215,6 @@ function Dashboard({ user, onLogout, cloudStatus, onExport }) {
           </div>
         </div>
 
-        {/* Main Card */}
         <div style={{ backgroundColor: 'white', borderRadius: '1rem', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '2rem' }}>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem' }}>Dashboard</h2>
           <p style={{ color: '#6b7280', marginBottom: '1.5rem' }}>System is running</p>
