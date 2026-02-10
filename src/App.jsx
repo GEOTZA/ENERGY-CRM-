@@ -223,7 +223,7 @@ const API = {
 
     const users = JSON.parse(localStorage.getItem('crm_users') || '[]');
     if (userRole === 'agent') return customers.filter(c => c.agentId === userId);
-    if (userRole === 'super_user') {
+    if (userRole === 'supervisor') {
       const agentIds = users.filter(u => u.role === 'agent' && u.superUserId === userId).map(u => u.id);
       return customers.filter(c => agentIds.includes(c.agentId));
     }
@@ -250,7 +250,7 @@ const API = {
 
     // 3. Notifications
     const users = JSON.parse(localStorage.getItem('crm_users') || '[]');
-    users.filter(u => u.role === 'super_user').forEach(su => {
+    users.filter(u => u.role === 'supervisor').forEach(su => {
       sendEmailNotification(su.email, 'Νέα Καταχώρηση Πελάτη',
         `Ο ${customer.agentName} δημιούργησε νέα καταχώρηση για τον πελάτη ${customer.name} ${customer.surname}`);
     });
@@ -337,7 +337,7 @@ const API = {
   async getUsersByHierarchy(userId, userRole) {
     const users = await this.getUsers();
     if (userRole === 'director' || userRole === 'back_office') return users;
-    if (userRole === 'super_user') return users.filter(u => u.superUserId === userId || u.id === userId);
+    if (userRole === 'supervisor') return users.filter(u => u.superUserId === userId || u.id === userId);
     return [];
   },
 
@@ -345,11 +345,11 @@ const API = {
     const users = JSON.parse(localStorage.getItem('crm_users') || '[]');
     const newUser = { ...user, id: Date.now(), assignedAgents: [], createdBy: creatorId };
 
-    if ((creatorRole === 'director' || creatorRole === 'back_office') && user.role === 'super_user') {
+    if ((creatorRole === 'director' || creatorRole === 'back_office') && user.role === 'supervisor') {
       newUser.superUserId = null;
     } else if ((creatorRole === 'director' || creatorRole === 'back_office') && (user.role === 'agent' || user.role === 'back_office')) {
       newUser.superUserId = user.superUserId || null;
-    } else if (creatorRole === 'super_user') {
+    } else if (creatorRole === 'supervisor') {
       newUser.superUserId = creatorId;
     }
 
@@ -432,7 +432,7 @@ const initializeDemoData = () => {
   if (!localStorage.getItem('crm_users')) {
     const demoUsers = [
       { id: 1, email: 'director@crm.com', password: 'dir123', name: 'Director Admin', role: 'director', createdBy: null },
-      { id: 2, email: 'superuser@crm.com', password: 'super123', name: 'George Tzagarakis', role: 'super_user', createdBy: 1, assignedAgents: [] },
+      { id: 2, email: 'supervisor@crm.com', password: 'super123', name: 'George Tzagarakis', role: 'supervisor', createdBy: 1, assignedAgents: [] },
       { id: 3, email: 'backoffice@crm.com', password: 'back123', name: 'Back Office User', role: 'back_office', createdBy: 1, superUserId: null },
       { id: 4, email: 'agent@crm.com', password: 'agent123', name: 'Agent Demo', role: 'agent', createdBy: 2, superUserId: 2 }
     ];
@@ -497,7 +497,7 @@ const LoginPage = ({ onLogin }) => {
             <strong className="text-blue-900">Demo Credentials:</strong><br/>
             <span className="text-blue-800">
               Director: director@crm.com / dir123<br/>
-              Super User: superuser@crm.com / super123<br/>
+              Supervisor: supervisor@crm.com / super123<br/>
               Back Office: backoffice@crm.com / back123<br/>
               Agent: agent@crm.com / agent123
             </span>
@@ -1328,7 +1328,7 @@ const ExportFilterModal = ({ onExport, onClose, user, agents }) => {
           )}
 
           {/* Agents */}
-          {(user.role === 'super_user' || user.role === 'back_office' || user.role === 'director') && agents.length > 0 && (
+          {(user.role === 'supervisor' || user.role === 'back_office' || user.role === 'director') && agents.length > 0 && (
             <>
               <SectionHeader id="agents" icon="👤" title="Agents" color="bg-yellow-600" badge={filters.agentIds.length > 0 ? `${filters.agentIds.length}` : null} />
               {openSections.agents && (
@@ -1575,7 +1575,7 @@ const CustomerList = ({ user, customers, onEdit, onDelete, onExport, onViewComme
                 <th className="text-left py-4 px-3 font-bold text-gray-700 text-sm">Κινητό</th>
                 <th className="text-left py-4 px-3 font-bold text-gray-700 text-sm">ΑΦΜ</th>
                 <th className="text-left py-4 px-3 font-bold text-gray-700 text-sm">Πάροχος</th>
-                {(user.role === 'back_office' || user.role === 'super_user') && (
+                {(user.role === 'back_office' || user.role === 'supervisor') && (
                   <th className="text-left py-4 px-3 font-bold text-gray-700 text-sm">Agent</th>
                 )}
                 <th className="text-left py-4 px-3 font-bold text-gray-700 text-sm">Ημ. Υποβολής</th>
@@ -1592,7 +1592,7 @@ const CustomerList = ({ user, customers, onEdit, onDelete, onExport, onViewComme
                   <td className="py-4 px-3 text-sm text-gray-600">{customer.phone}</td>
                   <td className="py-4 px-3 font-mono text-sm text-gray-600">{customer.afm}</td>
                   <td className="py-4 px-3 text-sm">{customer.provider}</td>
-                  {(user.role === 'back_office' || user.role === 'super_user') && (
+                  {(user.role === 'back_office' || user.role === 'supervisor') && (
                     <td className="py-4 px-3 text-sm text-gray-600">{customer.agentName}</td>
                   )}
                   <td className="py-4 px-3 text-sm text-gray-600">{customer.submissionDate}</td>
@@ -1606,7 +1606,7 @@ const CustomerList = ({ user, customers, onEdit, onDelete, onExport, onViewComme
                       {/* Edit button - visible for agents on their own records, and back office/super user for all */}
                       {((user.role === 'agent' && customer.agentId === user.id) || 
                         user.role === 'back_office' || 
-                        user.role === 'super_user') && (
+                        user.role === 'supervisor') && (
                         <button
                           onClick={() => onEdit(customer)}
                           className="flex items-center gap-1 px-3 py-1.5 text-sm bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-all font-medium"
@@ -1628,7 +1628,7 @@ const CustomerList = ({ user, customers, onEdit, onDelete, onExport, onViewComme
                       </button>
                       
                       {/* Delete button - only for back office and super user */}
-                      {(user.role === 'back_office' || user.role === 'super_user') && (
+                      {(user.role === 'back_office' || user.role === 'supervisor') && (
                         <button
                           onClick={() => onDelete(customer.id)}
                           className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
@@ -2266,8 +2266,8 @@ const UserManagement = ({ currentUser }) => {
     email: '',
     password: '',
     name: '',
-    role: (currentUser.role === 'director' || currentUser.role === 'back_office') ? 'super_user' : 'agent',
-    superUserId: currentUser.role === 'super_user' ? currentUser.id : null
+    role: (currentUser.role === 'director' || currentUser.role === 'back_office') ? 'supervisor' : 'agent',
+    superUserId: currentUser.role === 'supervisor' ? currentUser.id : null
   });
 
   useEffect(() => {
@@ -2283,7 +2283,7 @@ const UserManagement = ({ currentUser }) => {
 
   const loadSuperUsers = async () => {
     const allUsers = await API.getUsers();
-    setSuperUsers(allUsers.filter(u => u.role === 'super_user'));
+    setSuperUsers(allUsers.filter(u => u.role === 'supervisor'));
   };
 
   const handleCreateUser = async (e) => {
@@ -2297,8 +2297,8 @@ const UserManagement = ({ currentUser }) => {
       email: '', 
       password: '', 
       name: '', 
-      role: (currentUser.role === 'director' || currentUser.role === 'back_office') ? 'super_user' : 'agent',
-      superUserId: currentUser.role === 'super_user' ? currentUser.id : null
+      role: (currentUser.role === 'director' || currentUser.role === 'back_office') ? 'supervisor' : 'agent',
+      superUserId: currentUser.role === 'supervisor' ? currentUser.id : null
     });
     setShowForm(false);
     setEditingUser(null);
@@ -2327,13 +2327,13 @@ const UserManagement = ({ currentUser }) => {
   const getRoleBadge = (role) => {
     const styles = {
       director: 'bg-purple-100 text-purple-800 border-purple-300',
-      super_user: 'bg-red-100 text-red-800 border-red-300',
+      supervisor: 'bg-red-100 text-red-800 border-red-300',
       back_office: 'bg-blue-100 text-blue-800 border-blue-300',
       agent: 'bg-green-100 text-green-800 border-green-300'
     };
     const labels = {
       director: 'Director',
-      super_user: 'Super User',
+      supervisor: 'Supervisor',
       back_office: 'Back Office',
       agent: 'Agent'
     };
@@ -2352,11 +2352,11 @@ const UserManagement = ({ currentUser }) => {
   const getAvailableRoles = () => {
     if (currentUser.role === 'director' || currentUser.role === 'back_office') {
       return [
-        { value: 'super_user', label: 'Super User' },
+        { value: 'supervisor', label: 'Supervisor' },
         { value: 'back_office', label: 'Back Office' },
         { value: 'agent', label: 'Agent' }
       ];
-    } else if (currentUser.role === 'super_user') {
+    } else if (currentUser.role === 'supervisor') {
       return [
         { value: 'back_office', label: 'Back Office' },
         { value: 'agent', label: 'Agent' }
@@ -2375,7 +2375,7 @@ const UserManagement = ({ currentUser }) => {
           <p className="text-sm text-gray-600 mt-1">
             {currentUser.role === 'director' && 'Διαχείριση όλων των χρηστών του συστήματος'}
             {currentUser.role === 'back_office' && 'Διαχείριση όλων των χρηστών του συστήματος'}
-            {currentUser.role === 'super_user' && 'Διαχείριση των agents και back office του δέντρου σας'}
+            {currentUser.role === 'supervisor' && 'Διαχείριση των agents και back office του δέντρου σας'}
           </p>
         </div>
         <button
@@ -2386,8 +2386,8 @@ const UserManagement = ({ currentUser }) => {
               email: '', 
               password: '', 
               name: '', 
-              role: currentUser.role === 'director' ? 'super_user' : 'agent',
-              superUserId: currentUser.role === 'super_user' ? currentUser.id : null
+              role: currentUser.role === 'director' ? 'supervisor' : 'agent',
+              superUserId: currentUser.role === 'supervisor' ? currentUser.id : null
             });
           }}
           className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-slate-800 transition-all flex items-center gap-2"
@@ -2451,11 +2451,11 @@ const UserManagement = ({ currentUser }) => {
               </div>
             </div>
 
-            {/* Show Super User selection for Director/Back Office creating agents/back office */}
+            {/* Show Supervisor selection for Director/Back Office creating agents/back office */}
             {(currentUser.role === 'director' || currentUser.role === 'back_office') && (newUser.role === 'agent' || newUser.role === 'back_office') && (
               <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
                 <label className="block text-gray-700 font-medium mb-2 text-sm">
-                  Ανήκει στον Super User *
+                  Ανήκει στον Supervisor *
                 </label>
                 <select
                   value={newUser.superUserId || ''}
@@ -2463,13 +2463,13 @@ const UserManagement = ({ currentUser }) => {
                   className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
                   required
                 >
-                  <option value="">Επιλέξτε Super User</option>
+                  <option value="">Επιλέξτε Supervisor</option>
                   {superUsers.map(su => (
                     <option key={su.id} value={su.id}>{su.name}</option>
                   ))}
                 </select>
                 <p className="text-xs text-gray-600 mt-2">
-                  Ο χρήστης θα ανήκει στο δέντρο του επιλεγμένου Super User
+                  Ο χρήστης θα ανήκει στο δέντρο του επιλεγμένου Supervisor
                 </p>
               </div>
             )}
@@ -2490,8 +2490,8 @@ const UserManagement = ({ currentUser }) => {
                     email: '', 
                     password: '', 
                     name: '', 
-                    role: currentUser.role === 'director' ? 'super_user' : 'agent',
-                    superUserId: currentUser.role === 'super_user' ? currentUser.id : null
+                    role: currentUser.role === 'director' ? 'supervisor' : 'agent',
+                    superUserId: currentUser.role === 'supervisor' ? currentUser.id : null
                   });
                 }}
                 className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl font-semibold hover:bg-gray-200 transition-all"
@@ -2524,7 +2524,7 @@ const UserManagement = ({ currentUser }) => {
                 <td className="py-4 px-3">{getRoleBadge(user.role)}</td>
                 {(currentUser.role === 'director' || currentUser.role === 'back_office') && (
                   <td className="py-4 px-3 text-sm text-gray-600">
-                    {user.role === 'super_user' ? 'Director' : getSuperUserName(user.superUserId)}
+                    {user.role === 'supervisor' ? 'Director' : getSuperUserName(user.superUserId)}
                   </td>
                 )}
                 <td className="py-4 px-3">
@@ -2685,7 +2685,7 @@ const Dashboard = ({ user, onLogout, cloudStatus, onExportJSON }) => {
   const getRoleLabel = (role) => {
     const labels = {
       director: 'Director',
-      super_user: 'Super User',
+      super_user: 'Supervisor',
       back_office: 'Back Office',
       agent: 'Agent'
     };
@@ -2759,7 +2759,7 @@ const Dashboard = ({ user, onLogout, cloudStatus, onExportJSON }) => {
             </button>
           )}
 
-          {(user.role === 'director' || user.role === 'super_user' || user.role === 'back_office') && (
+          {(user.role === 'director' || user.role === 'supervisor' || user.role === 'back_office') && (
             <>
               <button
                 onClick={() => setView('users')}
@@ -2775,7 +2775,7 @@ const Dashboard = ({ user, onLogout, cloudStatus, onExportJSON }) => {
             </>
           )}
 
-          {(user.role === 'director' || user.role === 'super_user' || user.role === 'back_office') && (
+          {(user.role === 'director' || user.role === 'supervisor' || user.role === 'back_office') && (
             <button
               onClick={() => setView('fields')}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
@@ -3078,12 +3078,12 @@ const Dashboard = ({ user, onLogout, cloudStatus, onExportJSON }) => {
         )}
 
         {/* Users Management */}
-        {view === 'users' && (user.role === 'director' || user.role === 'super_user' || user.role === 'back_office') && (
+        {view === 'users' && (user.role === 'director' || user.role === 'supervisor' || user.role === 'back_office') && (
           <UserManagement currentUser={user} />
         )}
 
         {/* Custom Fields Management */}
-        {view === 'fields' && (user.role === 'director' || user.role === 'super_user' || user.role === 'back_office') && (
+        {view === 'fields' && (user.role === 'director' || user.role === 'supervisor' || user.role === 'back_office') && (
           <CustomFieldsManagement />
         )}
         </div>
