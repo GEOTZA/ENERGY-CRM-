@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, Plus, Trash2, Copy, Check, MessageSquare, X, Edit2, Filter, User, Users, Grid, FileText } from 'lucide-react';
+import { Download, Plus, Trash2, Copy, Check, MessageSquare, X, Edit2, Filter, User, Users, Grid, FileText, Settings } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 // ============================================================
@@ -177,6 +177,16 @@ const sendEmailNotification = (to, subject, message) => {
   // In production, this would call your backend email service
 };
 
+// Helper function to download signature as PNG
+const downloadSignature = (signatureDataUrl, customerName) => {
+  const link = document.createElement('a');
+  link.href = signatureDataUrl;
+  link.download = `signature_${customerName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.png`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
 // ─── API: Supabase first → localStorage fallback ────────────
 const API = {
 
@@ -192,7 +202,8 @@ const API = {
           // fallback to localStorage
           users = JSON.parse(localStorage.getItem('crm_users') || '[]').filter(u => u.email === email);
         }
-        const user = (users || []).find(u => u.password === password);
+        // Filter out suspended and deleted users
+        const user = (users || []).find(u => u.password === password && u.status !== 'suspended' && u.status !== 'deleted');
         resolve(user || null);
       }, 500);
     });
@@ -223,10 +234,22 @@ const API = {
 
     const users = JSON.parse(localStorage.getItem('crm_users') || '[]');
     if (userRole === 'agent') return customers.filter(c => c.agentId === userId);
-    if (userRole === 'supervisor') {
+    
+    if (userRole === 'partner') {
+      // Partner sees customers from themselves and their agents
       const agentIds = users.filter(u => u.role === 'agent' && u.superUserId === userId).map(u => u.id);
-      return customers.filter(c => agentIds.includes(c.agentId));
+      return customers.filter(c => c.agentId === userId || agentIds.includes(c.agentId));
     }
+    
+    if (userRole === 'supervisor') {
+      // Supervisor sees customers from their agents and partners (and agents under partners)
+      const directAgentIds = users.filter(u => u.role === 'agent' && u.superUserId === userId).map(u => u.id);
+      const partnerIds = users.filter(u => u.role === 'partner' && u.superUserId === userId).map(u => u.id);
+      const agentsUnderPartners = users.filter(u => u.role === 'agent' && partnerIds.includes(u.superUserId)).map(u => u.id);
+      const allAgentIds = [...directAgentIds, ...partnerIds, ...agentsUnderPartners];
+      return customers.filter(c => allAgentIds.includes(c.agentId));
+    }
+    
     return customers; // director / back_office see all
   },
 
@@ -336,21 +359,51 @@ const API = {
 
   async getUsersByHierarchy(userId, userRole) {
     const users = await this.getUsers();
-    if (userRole === 'director' || userRole === 'back_office') return users;
-    if (userRole === 'supervisor') return users.filter(u => u.superUserId === userId || u.id === userId);
+    if (userRole === 'admin' || userRole === 'director' || userRole === 'back_office') return users;
+    
+    if (userRole === 'supervisor') {
+      // Supervisor sees: themselves, their partners, their agents, and agents under their partners
+      const directReports = users.filter(u => u.superUserId === userId);
+      const partnerIds = directReports.filter(u => u.role === 'partner').map(u => u.id);
+      const agentsUnderPartners = users.filter(u => u.role === 'agent' && partnerIds.includes(u.superUserId));
+      return [users.find(u => u.id === userId), ...directReports, ...agentsUnderPartners].filter(Boolean);
+    }
+    
+    if (userRole === 'partner') {
+      // Partner sees: themselves and their agents
+      return users.filter(u => u.id === userId || (u.role === 'agent' && u.superUserId === userId));
+    }
+    
     return [];
   },
 
   async createUser(user, creatorId, creatorRole) {
     const users = JSON.parse(localStorage.getItem('crm_users') || '[]');
-    const newUser = { ...user, id: Date.now(), assignedAgents: [], createdBy: creatorId };
+    const newUser = { ...user, id: Date.now(), assignedAgents: [], createdBy: creatorId, status: 'active' };
 
-    if ((creatorRole === 'director' || creatorRole === 'back_office') && user.role === 'supervisor') {
-      newUser.superUserId = null;
-    } else if ((creatorRole === 'director' || creatorRole === 'back_office') && (user.role === 'agent' || user.role === 'back_office')) {
-      newUser.superUserId = user.superUserId || null;
-    } else if (creatorRole === 'supervisor') {
-      newUser.superUserId = creatorId;
+    // Back Office is ONLY created by Director
+    if (user.role === 'back_office') {
+      newUser.superUserId = null; // Back Office has no supervisor
+    }
+    // Supervisor is created by Director
+    else if (user.role === 'supervisor' || user.role === 'partner') {
+      newUser.superUserId = null; // Supervisors have no supervisor
+    }
+    // Partner can be created by Director or Supervisor
+    else if (user.role === 'partner') {
+      if (creatorRole === 'director') {
+        newUser.superUserId = user.superUserId || null; // Can be under Director or Supervisor
+      } else if (creatorRole === 'supervisor') {
+        newUser.superUserId = creatorId; // Under the supervisor who created them
+      }
+    }
+    // Agent can be created by Director, Supervisor, or Partner
+    else if (user.role === 'agent') {
+      if (creatorRole === 'director') {
+        newUser.superUserId = user.superUserId || null; // Can be under Director, Supervisor, or Partner
+      } else if (creatorRole === 'supervisor' || creatorRole === 'partner') {
+        newUser.superUserId = creatorId; // Under whoever created them
+      }
     }
 
     if (cloudEnabled()) { await sb('users', 'POST', newUser); }
@@ -360,10 +413,16 @@ const API = {
   },
 
   async deleteUser(id) {
-    if (cloudEnabled()) { await sb(`users?id=eq.${id}`, 'DELETE'); }
-    const users = JSON.parse(localStorage.getItem('crm_users') || '[]').filter(u => u.id !== id);
-    localStorage.setItem('crm_users', JSON.stringify(users));
-    return true;
+    // Soft delete - set status to 'deleted' instead of actually deleting
+    return this.updateUser(id, { status: 'deleted' });
+  },
+
+  async suspendUser(id) {
+    return this.updateUser(id, { status: 'suspended' });
+  },
+
+  async activateUser(id) {
+    return this.updateUser(id, { status: 'active' });
   },
 
   async updateUser(id, updates) {
@@ -431,10 +490,12 @@ const syncDemoDataToCloud = async () => {
 const initializeDemoData = () => {
   if (!localStorage.getItem('crm_users')) {
     const demoUsers = [
-      { id: 1, email: 'director@crm.com', password: 'dir123', name: 'Director Admin', role: 'director', createdBy: null },
-      { id: 2, email: 'supervisor@crm.com', password: 'super123', name: 'George Tzagarakis', role: 'supervisor', createdBy: 1, assignedAgents: [] },
-      { id: 3, email: 'backoffice@crm.com', password: 'back123', name: 'Back Office User', role: 'back_office', createdBy: 1, superUserId: null },
-      { id: 4, email: 'agent@crm.com', password: 'agent123', name: 'Agent Demo', role: 'agent', createdBy: 2, superUserId: 2 }
+      { id: 0, email: 'admin@crm.com', password: 'admin123!', name: 'System Admin', role: 'admin', status: 'active', createdBy: null },
+      { id: 1, email: 'director@crm.com', password: 'dir123', name: 'Director Admin', role: 'director', status: 'active', createdBy: 0 },
+      { id: 2, email: 'supervisor@crm.com', password: 'super123', name: 'George Tzagarakis', role: 'supervisor', status: 'active', createdBy: 1, assignedAgents: [] },
+      { id: 3, email: 'backoffice@crm.com', password: 'back123', name: 'Back Office User', role: 'back_office', status: 'active', createdBy: 1, superUserId: null },
+      { id: 4, email: 'partner@crm.com', password: 'partner123', name: 'Partner Demo', role: 'partner', status: 'active', createdBy: 2, superUserId: 2, assignedAgents: [] },
+      { id: 5, email: 'agent@crm.com', password: 'agent123', name: 'Agent Demo', role: 'agent', status: 'active', createdBy: 4, superUserId: 4 }
     ];
     localStorage.setItem('crm_users', JSON.stringify(demoUsers));
   }
@@ -496,9 +557,11 @@ const LoginPage = ({ onLogin }) => {
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 text-xs">
             <strong className="text-blue-900">Demo Credentials:</strong><br/>
             <span className="text-blue-800">
+              <strong>Admin: admin@crm.com / admin123!</strong><br/>
               Director: director@crm.com / dir123<br/>
               Supervisor: supervisor@crm.com / super123<br/>
               Back Office: backoffice@crm.com / back123<br/>
+              Partner: partner@crm.com / partner123<br/>
               Agent: agent@crm.com / agent123
             </span>
           </div>
@@ -1062,13 +1125,25 @@ const CustomerForm = ({ user, onSave, onCancel, editingCustomer }) => {
                   <Check size={20} />
                   Υπογραφή ολοκληρώθηκε
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setIsSignatureModalOpen(true)}
-                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                >
-                  Επανάληψη
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsSignatureModalOpen(true)}
+                    className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                  >
+                    Επανάληψη
+                  </button>
+                  {(user.role === 'director' || user.role === 'back_office') && (
+                    <button
+                      type="button"
+                      onClick={() => downloadSignature(formData.signature, `${formData.name}_${formData.surname}`)}
+                      className="flex items-center gap-1 text-green-600 hover:text-green-700 text-sm font-medium"
+                    >
+                      <Download size={16} />
+                      Λήψη PNG
+                    </button>
+                  )}
+                </div>
               </div>
               <img src={formData.signature} alt="Signature" className="border border-gray-300 rounded-lg max-h-32" />
             </div>
@@ -1575,7 +1650,7 @@ const CustomerList = ({ user, customers, onEdit, onDelete, onExport, onViewComme
                 <th className="text-left py-4 px-3 font-bold text-gray-700 text-sm">Κινητό</th>
                 <th className="text-left py-4 px-3 font-bold text-gray-700 text-sm">ΑΦΜ</th>
                 <th className="text-left py-4 px-3 font-bold text-gray-700 text-sm">Πάροχος</th>
-                {(user.role === 'back_office' || user.role === 'supervisor') && (
+                {(user.role === 'back_office' || user.role === 'supervisor' || user.role === 'partner') && (
                   <th className="text-left py-4 px-3 font-bold text-gray-700 text-sm">Agent</th>
                 )}
                 <th className="text-left py-4 px-3 font-bold text-gray-700 text-sm">Ημ. Υποβολής</th>
@@ -1592,7 +1667,7 @@ const CustomerList = ({ user, customers, onEdit, onDelete, onExport, onViewComme
                   <td className="py-4 px-3 text-sm text-gray-600">{customer.phone}</td>
                   <td className="py-4 px-3 font-mono text-sm text-gray-600">{customer.afm}</td>
                   <td className="py-4 px-3 text-sm">{customer.provider}</td>
-                  {(user.role === 'back_office' || user.role === 'supervisor') && (
+                  {(user.role === 'back_office' || user.role === 'supervisor' || user.role === 'partner') && (
                     <td className="py-4 px-3 text-sm text-gray-600">{customer.agentName}</td>
                   )}
                   <td className="py-4 px-3 text-sm text-gray-600">{customer.submissionDate}</td>
@@ -1603,10 +1678,12 @@ const CustomerList = ({ user, customers, onEdit, onDelete, onExport, onViewComme
                   </td>
                   <td className="py-4 px-3">
                     <div className="flex gap-2">
-                      {/* Edit button - visible for agents on their own records, and back office/super user for all */}
+                      {/* Edit button - visible for agents/partners on their own records, and back office/supervisor/director for all */}
                       {((user.role === 'agent' && customer.agentId === user.id) || 
+                        (user.role === 'partner' && customer.agentId === user.id) ||
                         user.role === 'back_office' || 
-                        user.role === 'supervisor') && (
+                        user.role === 'supervisor' ||
+                        user.role === 'director') && (
                         <button
                           onClick={() => onEdit(customer)}
                           className="flex items-center gap-1 px-3 py-1.5 text-sm bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-all font-medium"
@@ -1628,7 +1705,7 @@ const CustomerList = ({ user, customers, onEdit, onDelete, onExport, onViewComme
                       </button>
                       
                       {/* Delete button - only for back office and super user */}
-                      {(user.role === 'back_office' || user.role === 'supervisor') && (
+                      {(user.role === 'back_office' || user.role === 'supervisor' || user.role === 'partner') && (
                         <button
                           onClick={() => onDelete(customer.id)}
                           className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
@@ -2255,6 +2332,243 @@ const BackOfficeEditModal = ({ customer, onSave, onClose }) => {
   );
 };
 
+// ═══════════════════════════════════════════════════════════
+// ADMIN PANEL COMPONENT
+// ═══════════════════════════════════════════════════════════
+
+const AdminPanel = ({ currentUser }) => {
+  const [users, setUsers] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [roleFilter, setRoleFilter] = useState('all');
+
+  useEffect(() => {
+    loadAllUsers();
+  }, []);
+
+  const loadAllUsers = async () => {
+    const allUsers = await API.getUsers();
+    setUsers(allUsers);
+  };
+
+  const handleSuspend = async (userId) => {
+    if (confirm('Suspend this user? They won\'t be able to login.')) {
+      await API.suspendUser(userId);
+      loadAllUsers();
+    }
+  };
+
+  const handleActivate = async (userId) => {
+    await API.activateUser(userId);
+    loadAllUsers();
+  };
+
+  const handleDelete = async (userId) => {
+    if (confirm('Delete this user? This is a soft delete and can be undone.')) {
+      await API.deleteUser(userId);
+      loadAllUsers();
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    const styles = {
+      active: 'bg-green-100 text-green-800 border-green-300',
+      suspended: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+      deleted: 'bg-red-100 text-red-800 border-red-300'
+    };
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${styles[status || 'active']}`}>
+        {status || 'active'}
+      </span>
+    );
+  };
+
+  const getRoleBadge = (role) => {
+    const styles = {
+      admin: 'bg-gray-900 text-white border-gray-900',
+      director: 'bg-purple-100 text-purple-800 border-purple-300',
+      supervisor: 'bg-red-100 text-red-800 border-red-300',
+      back_office: 'bg-blue-100 text-blue-800 border-blue-300',
+      partner: 'bg-orange-100 text-orange-800 border-orange-300',
+      agent: 'bg-green-100 text-green-800 border-green-300'
+    };
+    const labels = {
+      admin: 'Admin',
+      director: 'Director',
+      supervisor: 'Supervisor',
+      back_office: 'Back Office',
+      partner: 'Partner',
+      agent: 'Agent'
+    };
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-semibold border ${styles[role]}`}>
+        {labels[role]}
+      </span>
+    );
+  };
+
+  const filteredUsers = users.filter(user => {
+    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         user.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
+    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+    return matchesSearch && matchesStatus && matchesRole;
+  });
+
+  const stats = {
+    total: users.length,
+    active: users.filter(u => u.status === 'active' || !u.status).length,
+    suspended: users.filter(u => u.status === 'suspended').length,
+    deleted: users.filter(u => u.status === 'deleted').length
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+      <div className="mb-6">
+        <h2 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+          <Settings size={32} className="text-gray-900" />
+          Admin Panel - User Management
+        </h2>
+        <p className="text-gray-600 mt-2">Manage all users, statuses, and permissions</p>
+      </div>
+
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <div className="text-2xl font-bold text-blue-900">{stats.total}</div>
+          <div className="text-sm text-blue-700">Total Users</div>
+        </div>
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+          <div className="text-2xl font-bold text-green-900">{stats.active}</div>
+          <div className="text-sm text-green-700">Active</div>
+        </div>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+          <div className="text-2xl font-bold text-yellow-900">{stats.suspended}</div>
+          <div className="text-sm text-yellow-700">Suspended</div>
+        </div>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          <div className="text-2xl font-bold text-red-900">{stats.deleted}</div>
+          <div className="text-sm text-red-700">Deleted</div>
+        </div>
+      </div>
+
+      <div className="flex gap-4 mb-6">
+        <div className="flex-1">
+          <input
+            type="text"
+            placeholder="🔍 Search users by name or email..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+        >
+          <option value="all">All Status</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
+          <option value="deleted">Deleted</option>
+        </select>
+        <select
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          className="px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+        >
+          <option value="all">All Roles</option>
+          <option value="admin">Admin</option>
+          <option value="director">Director</option>
+          <option value="supervisor">Supervisor</option>
+          <option value="back_office">Back Office</option>
+          <option value="partner">Partner</option>
+          <option value="agent">Agent</option>
+        </select>
+      </div>
+
+      <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">User</th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">Email</th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">Role</th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+              <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredUsers.map(user => (
+              <tr key={user.id} className="border-t border-gray-200 hover:bg-gray-50">
+                <td className="py-3 px-4">
+                  <div className="font-medium text-gray-900">{user.name}</div>
+                  <div className="text-xs text-gray-500">ID: {user.id}</div>
+                </td>
+                <td className="py-3 px-4 text-sm text-gray-600">{user.email}</td>
+                <td className="py-3 px-4">{getRoleBadge(user.role)}</td>
+                <td className="py-3 px-4">{getStatusBadge(user.status)}</td>
+                <td className="py-3 px-4">
+                  <div className="flex gap-2">
+                    {user.role !== 'admin' && (
+                      <>
+                        {(user.status === 'active' || !user.status) && (
+                          <button
+                            onClick={() => handleSuspend(user.id)}
+                            className="px-3 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-all"
+                            title="Suspend user"
+                          >
+                            ⏸ Suspend
+                          </button>
+                        )}
+                        {user.status === 'suspended' && (
+                          <button
+                            onClick={() => handleActivate(user.id)}
+                            className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-all"
+                            title="Activate user"
+                          >
+                            ▶ Activate
+                          </button>
+                        )}
+                        {user.status !== 'deleted' && (
+                          <button
+                            onClick={() => handleDelete(user.id)}
+                            className="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-all"
+                            title="Delete user (soft)"
+                          >
+                            🗑 Delete
+                          </button>
+                        )}
+                        {user.status === 'deleted' && (
+                          <button
+                            onClick={() => handleActivate(user.id)}
+                            className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-all"
+                            title="Restore user"
+                          >
+                            ♻ Restore
+                          </button>
+                        )}
+                      </>
+                    )}
+                    {user.role === 'admin' && (
+                      <span className="text-xs text-gray-500 italic">🔒 Protected</span>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {filteredUsers.length === 0 && (
+        <div className="text-center py-12 text-gray-500">
+          No users found matching your filters
+        </div>
+      )}
+    </div>
+  );
+};
+
 // User Management Component
 const UserManagement = ({ currentUser }) => {
   const [users, setUsers] = useState([]);
@@ -2283,7 +2597,8 @@ const UserManagement = ({ currentUser }) => {
 
   const loadSuperUsers = async () => {
     const allUsers = await API.getUsers();
-    setSuperUsers(allUsers.filter(u => u.role === 'supervisor'));
+    // Include Director, Supervisors, and Partners as possible assignments
+    setSuperUsers(allUsers.filter(u => u.role === 'director' || u.role === 'supervisor' || u.role === 'partner'));
   };
 
   const handleCreateUser = async (e) => {
@@ -2326,15 +2641,19 @@ const UserManagement = ({ currentUser }) => {
 
   const getRoleBadge = (role) => {
     const styles = {
+      admin: 'bg-gray-900 text-white border-gray-900',
       director: 'bg-purple-100 text-purple-800 border-purple-300',
       supervisor: 'bg-red-100 text-red-800 border-red-300',
       back_office: 'bg-blue-100 text-blue-800 border-blue-300',
+      partner: 'bg-orange-100 text-orange-800 border-orange-300',
       agent: 'bg-green-100 text-green-800 border-green-300'
     };
     const labels = {
+      admin: 'Admin',
       director: 'Director',
       supervisor: 'Supervisor',
       back_office: 'Back Office',
+      partner: 'Partner',
       agent: 'Agent'
     };
     return (
@@ -2350,15 +2669,32 @@ const UserManagement = ({ currentUser }) => {
   };
 
   const getAvailableRoles = () => {
-    if (currentUser.role === 'director' || currentUser.role === 'back_office') {
+    if (currentUser.role === 'admin') {
+      // Admin can create: Director, Supervisor, Back Office, Partner, Agent (NOT Admin!)
+      return [
+        { value: 'director', label: 'Director' },
+        { value: 'supervisor', label: 'Supervisor' },
+        { value: 'back_office', label: 'Back Office' },
+        { value: 'partner', label: 'Partner' },
+        { value: 'agent', label: 'Agent' }
+      ];
+    } else if (currentUser.role === 'director') {
+      // Director can create: Supervisor, Back Office, Partner, Agent
       return [
         { value: 'supervisor', label: 'Supervisor' },
         { value: 'back_office', label: 'Back Office' },
+        { value: 'partner', label: 'Partner' },
         { value: 'agent', label: 'Agent' }
       ];
     } else if (currentUser.role === 'supervisor') {
+      // Supervisor can create: Partner, Agent (NOT Back Office!)
       return [
-        { value: 'back_office', label: 'Back Office' },
+        { value: 'partner', label: 'Partner' },
+        { value: 'agent', label: 'Agent' }
+      ];
+    } else if (currentUser.role === 'partner') {
+      // Partner can only create: Agent
+      return [
         { value: 'agent', label: 'Agent' }
       ];
     }
@@ -2451,25 +2787,34 @@ const UserManagement = ({ currentUser }) => {
               </div>
             </div>
 
-            {/* Show Supervisor selection for Director/Back Office creating agents/back office */}
-            {(currentUser.role === 'director' || currentUser.role === 'back_office') && (newUser.role === 'agent' || newUser.role === 'back_office') && (
+            {/* Show assignment dropdown for Director creating Partners or Agents */}
+            {currentUser.role === 'director' && (newUser.role === 'partner' || newUser.role === 'agent') && (
               <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
                 <label className="block text-gray-700 font-medium mb-2 text-sm">
-                  Ανήκει στον Supervisor *
+                  Ανήκει σε (προαιρετικό)
                 </label>
                 <select
                   value={newUser.superUserId || ''}
-                  onChange={(e) => setNewUser({ ...newUser, superUserId: parseInt(e.target.value) })}
+                  onChange={(e) => setNewUser({ ...newUser, superUserId: parseInt(e.target.value) || null })}
                   className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
-                  required
                 >
-                  <option value="">Επιλέξτε Supervisor</option>
-                  {superUsers.map(su => (
-                    <option key={su.id} value={su.id}>{su.name}</option>
+                  <option value="">Κανένας (απευθείας στον Director)</option>
+                  {superUsers.filter(u => {
+                    // For Partner: can be under Supervisor or Director
+                    if (newUser.role === 'partner') return u.role === 'supervisor';
+                    // For Agent: can be under Director, Supervisor, or Partner
+                    if (newUser.role === 'agent') return u.role === 'supervisor' || u.role === 'partner';
+                    return false;
+                  }).map(su => (
+                    <option key={su.id} value={su.id}>
+                      {su.name} ({su.role === 'supervisor' ? 'Supervisor' : su.role === 'partner' ? 'Partner' : 'Director'})
+                    </option>
                   ))}
                 </select>
                 <p className="text-xs text-gray-600 mt-2">
-                  Ο χρήστης θα ανήκει στο δέντρο του επιλεγμένου Supervisor
+                  {newUser.role === 'partner' 
+                    ? 'Ο Partner μπορεί να ανήκει σε Supervisor ή απευθείας στον Director'
+                    : 'Ο Agent μπορεί να ανήκει σε Supervisor, Partner ή απευθείας στον Director'}
                 </p>
               </div>
             )}
@@ -2759,7 +3104,7 @@ const Dashboard = ({ user, onLogout, cloudStatus, onExportJSON }) => {
             </button>
           )}
 
-          {(user.role === 'director' || user.role === 'supervisor' || user.role === 'back_office') && (
+          {(user.role === 'director' || user.role === 'supervisor' || user.role === 'partner' || user.role === 'back_office') && (
             <>
               <button
                 onClick={() => setView('users')}
@@ -2775,7 +3120,7 @@ const Dashboard = ({ user, onLogout, cloudStatus, onExportJSON }) => {
             </>
           )}
 
-          {(user.role === 'director' || user.role === 'supervisor' || user.role === 'back_office') && (
+          {(user.role === 'director' || user.role === 'supervisor' || user.role === 'partner' || user.role === 'back_office') && (
             <button
               onClick={() => setView('fields')}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
@@ -2786,6 +3131,20 @@ const Dashboard = ({ user, onLogout, cloudStatus, onExportJSON }) => {
             >
               <FileText size={20} />
               <span>Πεδία</span>
+            </button>
+          )}
+
+          {user.role === 'admin' && (
+            <button
+              onClick={() => setView('admin')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
+                view === 'admin'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <Settings size={20} />
+              <span>Admin Panel</span>
             </button>
           )}
         </nav>
@@ -2838,6 +3197,7 @@ const Dashboard = ({ user, onLogout, cloudStatus, onExportJSON }) => {
                 {view === 'customers' && 'Πελάτες'}
                 {view === 'users' && 'Χρήστες'}
                 {view === 'fields' && 'Πεδία'}
+                {view === 'admin' && 'Admin Panel'}
                 {view === 'new' && 'Νέος Πελάτης'}
               </h1>
             </div>
@@ -3078,13 +3438,18 @@ const Dashboard = ({ user, onLogout, cloudStatus, onExportJSON }) => {
         )}
 
         {/* Users Management */}
-        {view === 'users' && (user.role === 'director' || user.role === 'supervisor' || user.role === 'back_office') && (
+        {view === 'users' && (user.role === 'director' || user.role === 'supervisor' || user.role === 'partner' || user.role === 'back_office') && (
           <UserManagement currentUser={user} />
         )}
 
         {/* Custom Fields Management */}
-        {view === 'fields' && (user.role === 'director' || user.role === 'supervisor' || user.role === 'back_office') && (
+        {view === 'fields' && (user.role === 'director' || user.role === 'supervisor' || user.role === 'partner' || user.role === 'back_office') && (
           <CustomFieldsManagement />
+        )}
+
+        {/* Admin Panel */}
+        {view === 'admin' && user.role === 'admin' && (
+          <AdminPanel currentUser={user} />
         )}
         </div>
       </div>
