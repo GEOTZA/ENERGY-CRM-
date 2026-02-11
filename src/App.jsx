@@ -2926,15 +2926,527 @@ const CustomFieldsManagement = () => {
     loadFields();
   }, []);
 
-  const handleAddField = async (e) => {
+  const loadFields = async () => {
+    const allFields = await API.getCustomFields();
+    setFields(allFields.sort((a, b) => (a.position || 0) - (b.position || 0)));
+  };
+
+  const handleSaveField = async (e) => {
     e.preventDefault();
-    if (newField.trim()) {
-      await API.addCustomField({ label: newField });
-      setNewField('');
+    
+    const fieldData = { ...newField };
+    
+    // Clean up validation based on type
+    if (newField.type === 'text') {
+      fieldData.validation = {
+        minLength: parseInt(newField.validation.minLength) || undefined,
+        maxLength: parseInt(newField.validation.maxLength) || undefined,
+        pattern: newField.validation.pattern || undefined,
+        errorMessage: newField.validation.errorMessage || undefined
+      };
+      // Remove undefined fields
+      Object.keys(fieldData.validation).forEach(key => 
+        fieldData.validation[key] === undefined && delete fieldData.validation[key]
+      );
+    } else if (newField.type === 'number') {
+      fieldData.validation = {
+        min: parseFloat(newField.validation.min) || undefined,
+        max: parseFloat(newField.validation.max) || undefined,
+        errorMessage: newField.validation.errorMessage || undefined
+      };
+      Object.keys(fieldData.validation).forEach(key => 
+        fieldData.validation[key] === undefined && delete fieldData.validation[key]
+      );
+    } else {
+      fieldData.validation = {};
+    }
+    
+    if (editingField) {
+      await API.updateCustomField(editingField.id, fieldData);
+    } else {
+      await API.addCustomField(fieldData);
+    }
+    
+    resetForm();
+    loadFields();
+  };
+
+  const handleDeleteField = async (id) => {
+    if (window.confirm('Διαγραφή πεδίου; Αυτό θα αφαιρέσει το πεδίο από όλους τους πελάτες.')) {
+      await API.deleteCustomField(id);
       loadFields();
     }
   };
 
+  const handleEditField = (field) => {
+    setEditingField(field);
+    setNewField({
+      label: field.label,
+      type: field.type,
+      section: field.section || '',
+      position: field.position || 1,
+      required: field.required || false,
+      options: field.options || [],
+      validation: field.validation || {},
+      defaultValue: field.defaultValue || ''
+    });
+    setShowFieldModal(true);
+  };
+
+  const resetForm = () => {
+    setShowFieldModal(false);
+    setEditingField(null);
+    setNewField({
+      label: '',
+      type: 'text',
+      section: '',
+      position: Math.max(...fields.map(f => f.position || 0), 0) + 1,
+      required: false,
+      options: [],
+      validation: {},
+      defaultValue: ''
+    });
+    setNewOption({ value: '', label: '' });
+  };
+
+  const handleAddOption = () => {
+    if (newOption.value && newOption.label) {
+      setNewField({
+        ...newField,
+        options: [...newField.options, { ...newOption }]
+      });
+      setNewOption({ value: '', label: '' });
+    }
+  };
+
+  const handleDeleteOption = (index) => {
+    const updatedOptions = newField.options.filter((_, i) => i !== index);
+    setNewField({ ...newField, options: updatedOptions });
+  };
+
+  const getFieldTypeBadge = (type) => {
+    const styles = {
+      text: 'bg-blue-100 text-blue-800',
+      number: 'bg-green-100 text-green-800',
+      date: 'bg-purple-100 text-purple-800',
+      dropdown: 'bg-orange-100 text-orange-800',
+      multiselect: 'bg-pink-100 text-pink-800',
+      checkbox: 'bg-gray-100 text-gray-800'
+    };
+    const labels = {
+      text: 'Text',
+      number: 'Number',
+      date: 'Date',
+      dropdown: 'Dropdown',
+      multiselect: 'Multi-Select',
+      checkbox: 'Checkbox'
+    };
+    return (
+      <span className={`px-2 py-1 rounded text-xs font-semibold ${styles[type]}`}>
+        {labels[type]}
+      </span>
+    );
+  };
+
+  // Group fields by section
+  const groupedFields = fields.reduce((acc, field) => {
+    const section = field.section || 'Χωρίς Ενότητα';
+    if (!acc[section]) acc[section] = [];
+    acc[section].push(field);
+    return acc;
+  }, {});
+
+  const uniqueSections = [...new Set(fields.map(f => f.section).filter(Boolean))];
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-3xl font-bold text-gray-900">🏗️ Field Builder</h2>
+          <p className="text-gray-600 mt-1">Δημιουργία προσαρμοσμένων πεδίων για τη φόρμα πελατών</p>
+        </div>
+        <button
+          onClick={() => {
+            resetForm();
+            setShowFieldModal(true);
+          }}
+          className="bg-slate-900 text-white px-6 py-3 rounded-xl font-semibold hover:bg-slate-800 transition-all flex items-center gap-2"
+        >
+          <Plus size={20} />
+          Νέο Πεδίο
+        </button>
+      </div>
+
+      {/* Fields List by Section */}
+      {Object.keys(groupedFields).length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <FileText size={48} className="mx-auto mb-4 opacity-50" />
+          <p>Δεν υπάρχουν προσαρμοσμένα πεδία</p>
+          <p className="text-sm mt-2">Κάντε κλικ στο "Νέο Πεδίο" για να ξεκινήσετε</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {Object.keys(groupedFields).sort().map(section => (
+            <div key={section} className="border border-gray-200 rounded-xl p-4">
+              <h3 className="font-bold text-lg text-gray-900 mb-3 flex items-center gap-2">
+                <Grid size={20} className="text-blue-600" />
+                {section}
+              </h3>
+              <div className="space-y-2">
+                {groupedFields[section].map(field => (
+                  <div key={field.id} className="bg-gray-50 rounded-lg p-4 flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-sm font-medium text-gray-500">#{field.position}</span>
+                        <span className="font-semibold text-gray-900">{field.label}</span>
+                        {getFieldTypeBadge(field.type)}
+                        {field.required && (
+                          <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-semibold">
+                            Required
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-600 space-y-1">
+                        {field.type === 'text' && field.validation && (
+                          <div>
+                            {field.validation.minLength && `Min: ${field.validation.minLength}`}
+                            {field.validation.maxLength && ` | Max: ${field.validation.maxLength}`}
+                            {field.validation.pattern && ` | Pattern: ${field.validation.pattern}`}
+                          </div>
+                        )}
+                        {field.type === 'number' && field.validation && (
+                          <div>
+                            {field.validation.min !== undefined && `Min: ${field.validation.min}`}
+                            {field.validation.max !== undefined && ` | Max: ${field.validation.max}`}
+                          </div>
+                        )}
+                        {(field.type === 'dropdown' || field.type === 'multiselect') && field.options && (
+                          <div>Options: {field.options.length} ({field.options.map(o => o.label).join(', ')})</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleEditField(field)}
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-all text-sm"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteField(field.id)}
+                        className="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition-all text-sm"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Field Modal */}
+      {showFieldModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4">
+              <h3 className="text-2xl font-bold text-gray-900">
+                {editingField ? 'Επεξεργασία Πεδίου' : 'Νέο Πεδίο'}
+              </h3>
+            </div>
+
+            <form onSubmit={handleSaveField} className="p-6 space-y-4">
+              {/* Field Label */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Όνομα Πεδίου *
+                </label>
+                <input
+                  type="text"
+                  value={newField.label}
+                  onChange={(e) => setNewField({ ...newField, label: e.target.value })}
+                  className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                  placeholder="π.χ. Αριθμός Μετρητή"
+                  required
+                />
+              </div>
+
+              {/* Field Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Τύπος Πεδίου *
+                </label>
+                <select
+                  value={newField.type}
+                  onChange={(e) => setNewField({ ...newField, type: e.target.value, options: [], validation: {} })}
+                  className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="text">Text (Κείμενο)</option>
+                  <option value="number">Number (Αριθμός)</option>
+                  <option value="date">Date (Ημερομηνία)</option>
+                  <option value="dropdown">Dropdown (Λίστα επιλογών)</option>
+                  <option value="multiselect">Multi-Select (Πολλαπλή επιλογή)</option>
+                  <option value="checkbox">Checkbox (Ναι/Όχι)</option>
+                </select>
+              </div>
+
+              {/* Section */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Ενότητα (Section)
+                </label>
+                <input
+                  type="text"
+                  value={newField.section}
+                  onChange={(e) => setNewField({ ...newField, section: e.target.value })}
+                  className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                  placeholder="π.χ. Στοιχεία Μετρητή"
+                  list="section-suggestions"
+                />
+                <datalist id="section-suggestions">
+                  {uniqueSections.map(s => <option key={s} value={s} />)}
+                </datalist>
+                <p className="text-xs text-gray-500 mt-1">Τα πεδία ομαδοποιούνται ανά ενότητα στη φόρμα</p>
+              </div>
+
+              {/* Position */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Θέση (Position)
+                </label>
+                <input
+                  type="number"
+                  value={newField.position}
+                  onChange={(e) => setNewField({ ...newField, position: parseInt(e.target.value) })}
+                  className="w-full px-4 py-2 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                  min="1"
+                />
+                <p className="text-xs text-gray-500 mt-1">Η σειρά εμφάνισης του πεδίου (1, 2, 3...)</p>
+              </div>
+
+              {/* Required */}
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="required"
+                  checked={newField.required}
+                  onChange={(e) => setNewField({ ...newField, required: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="required" className="text-sm font-medium text-gray-700">
+                  Υποχρεωτικό πεδίο (Required)
+                </label>
+              </div>
+
+              {/* Text Validation */}
+              {newField.type === 'text' && (
+                <div className="bg-blue-50 p-4 rounded-xl space-y-3">
+                  <h4 className="font-semibold text-gray-900">Κανόνες Επικύρωσης (Validation)</h4>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm text-gray-700 mb-1">Min Length</label>
+                      <input
+                        type="number"
+                        value={newField.validation.minLength || ''}
+                        onChange={(e) => setNewField({
+                          ...newField,
+                          validation: { ...newField.validation, minLength: e.target.value }
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        placeholder="π.χ. 8"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-700 mb-1">Max Length</label>
+                      <input
+                        type="number"
+                        value={newField.validation.maxLength || ''}
+                        onChange={(e) => setNewField({
+                          ...newField,
+                          validation: { ...newField.validation, maxLength: e.target.value }
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        placeholder="π.χ. 12"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Pattern (Regex)</label>
+                    <input
+                      type="text"
+                      value={newField.validation.pattern || ''}
+                      onChange={(e) => setNewField({
+                        ...newField,
+                        validation: { ...newField.validation, pattern: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      placeholder="π.χ. ^[0-9]+$ (μόνο αριθμοί)"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Error Message</label>
+                    <input
+                      type="text"
+                      value={newField.validation.errorMessage || ''}
+                      onChange={(e) => setNewField({
+                        ...newField,
+                        validation: { ...newField.validation, errorMessage: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      placeholder="π.χ. Πρέπει να είναι 8-12 ψηφία"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Number Validation */}
+              {newField.type === 'number' && (
+                <div className="bg-green-50 p-4 rounded-xl space-y-3">
+                  <h4 className="font-semibold text-gray-900">Κανόνες Επικύρωσης (Validation)</h4>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm text-gray-700 mb-1">Min Value</label>
+                      <input
+                        type="number"
+                        value={newField.validation.min !== undefined ? newField.validation.min : ''}
+                        onChange={(e) => setNewField({
+                          ...newField,
+                          validation: { ...newField.validation, min: e.target.value }
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        placeholder="π.χ. 0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-700 mb-1">Max Value</label>
+                      <input
+                        type="number"
+                        value={newField.validation.max !== undefined ? newField.validation.max : ''}
+                        onChange={(e) => setNewField({
+                          ...newField,
+                          validation: { ...newField.validation, max: e.target.value }
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        placeholder="π.χ. 100"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Error Message</label>
+                    <input
+                      type="text"
+                      value={newField.validation.errorMessage || ''}
+                      onChange={(e) => setNewField({
+                        ...newField,
+                        validation: { ...newField.validation, errorMessage: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      placeholder="π.χ. Η τιμή πρέπει να είναι 0-100"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Dropdown/Multi-select Options */}
+              {(newField.type === 'dropdown' || newField.type === 'multiselect') && (
+                <div className="bg-orange-50 p-4 rounded-xl space-y-3">
+                  <h4 className="font-semibold text-gray-900">Επιλογές (Options)</h4>
+                  
+                  {/* Existing options */}
+                  <div className="space-y-2">
+                    {newField.options.map((option, index) => (
+                      <div key={index} className="flex items-center gap-2 bg-white p-2 rounded">
+                        <span className="flex-1 text-sm">
+                          <strong>{option.label}</strong> ({option.value})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteOption(index)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Add new option */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={newOption.value}
+                      onChange={(e) => setNewOption({ ...newOption, value: e.target.value })}
+                      className="px-3 py-2 border border-gray-300 rounded-lg"
+                      placeholder="Value (π.χ. mono)"
+                    />
+                    <input
+                      type="text"
+                      value={newOption.label}
+                      onChange={(e) => setNewOption({ ...newOption, label: e.target.value })}
+                      className="px-3 py-2 border border-gray-300 rounded-lg"
+                      placeholder="Label (π.χ. Μονοφασική)"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddOption}
+                    className="w-full py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-all text-sm"
+                  >
+                    + Add Option
+                  </button>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="submit"
+                  className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-semibold hover:bg-slate-800 transition-all"
+                >
+                  {editingField ? 'Ενημέρωση' : 'Δημιουργία'} Πεδίου
+                </button>
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50 transition-all"
+                >
+                  Ακύρωση
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+---
+
+### Step 3: Update API Functions (1 min)
+
+Find the API.updateCustomField function (around line 444) and make sure it exists:
+
+```javascript
+// In the API object, add/update these functions:
+
+async updateCustomField(id, updates) {
+  const fields = JSON.parse(localStorage.getItem('crm_custom_fields') || '[]');
+  const index = fields.findIndex(f => f.id === id);
+  if (index === -1) return null;
+  fields[index] = { ...fields[index], ...updates };
+  if (cloudEnabled()) { await sb(`custom_fields?id=eq.${id}`, 'PATCH', fields[index]); }
+  localStorage.setItem('crm_custom_fields', JSON.stringify(fields));
+  return fields[index];
+}
   const handleDeleteField = async (id) => {
     if (window.confirm('Είστε σίγουροι ότι θέλετε να διαγράψετε αυτό το πεδίο;')) {
       await API.deleteCustomField(id);
