@@ -2901,19 +2901,30 @@ const UserManagement = ({ currentUser }) => {
   );
 };
 
-// Custom Fields Management
+```javascript
+// ═══════════════════════════════════════════════════════════
+// ENHANCED CUSTOM FIELDS MANAGEMENT - PHASE 3B
+// ═══════════════════════════════════════════════════════════
+
 const CustomFieldsManagement = () => {
   const [fields, setFields] = useState([]);
-  const [newField, setNewField] = useState('');
+  const [showFieldModal, setShowFieldModal] = useState(false);
+  const [editingField, setEditingField] = useState(null);
+  const [newField, setNewField] = useState({
+    label: '',
+    type: 'text',
+    section: '',
+    position: 1,
+    required: false,
+    options: [],
+    validation: {},
+    defaultValue: ''
+  });
+  const [newOption, setNewOption] = useState({ value: '', label: '' });
 
   useEffect(() => {
     loadFields();
   }, []);
-
-  const loadFields = async () => {
-    const allFields = await API.getCustomFields();
-    setFields(allFields);
-  };
 
   const handleAddField = async (e) => {
     e.preventDefault();
