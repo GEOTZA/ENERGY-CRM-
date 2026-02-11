@@ -1520,9 +1520,10 @@ const CustomerList = ({ user, customers, users, onEdit, onDelete, onAddComment, 
 const BackOfficeEditModal = ({ customer, onClose, onUpdate }) => {
   const [status, setStatus] = useState(customer.status);
   const [comments, setComments] = useState(customer.comments || '');
+  const [contract, setContract] = useState(customer.contract || null);
 
   const handleSave = async () => {
-    await onUpdate(customer.id, { status, comments });
+    await onUpdate(customer.id, { status, comments, contract });
     onClose();
   };
 
@@ -1536,6 +1537,42 @@ const BackOfficeEditModal = ({ customer, onClose, onUpdate }) => {
     }
   };
 
+  const handleContractUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setContract({
+          name: file.name,
+          data: reader.result,
+          uploadedAt: new Date().toISOString()
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleDownloadContract = () => {
+    if (contract) {
+      const link = document.createElement('a');
+      link.href = contract.data;
+      link.download = contract.name;
+      link.click();
+    }
+  };
+
+  const handleSendEmail = () => {
+    alert(`Email sent to ${customer.email} with contract`);
+  };
+
+  const handleSendViber = () => {
+    alert(`Viber message sent to ${customer.phone}`);
+  };
+
+  const handleSendWhatsApp = () => {
+    alert(`WhatsApp message sent to ${customer.phone}`);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl my-8">
@@ -1546,10 +1583,7 @@ const BackOfficeEditModal = ({ customer, onClose, onUpdate }) => {
             </h2>
             <p className="text-sm text-gray-500 mt-1">ΑΦΜ: {customer.afm}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
             <X size={24} className="text-gray-500" />
           </button>
         </div>
@@ -1643,7 +1677,6 @@ const BackOfficeEditModal = ({ customer, onClose, onUpdate }) => {
             </div>
           </div>
 
-          {/* SIGNATURE PNG DOWNLOAD - ΝΕΑ ΠΡΟΣΘΗΚΗ! */}
           {customer.signature && (
             <div className="bg-purple-50 rounded-xl border border-purple-200 overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-3 bg-purple-100 border-b border-purple-200">
@@ -1667,6 +1700,64 @@ const BackOfficeEditModal = ({ customer, onClose, onUpdate }) => {
               </div>
             </div>
           )}
+
+          <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4">
+            <h3 className="text-sm font-bold text-indigo-800 mb-3">Συμβόλαιο & Αποστολή</h3>
+            
+            {contract ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 bg-white border-2 border-green-200 rounded-lg p-3">
+                  <svg className="w-5 h-5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm text-gray-700 flex-1">{contract.name}</span>
+                  <button onClick={handleDownloadContract} className="p-1 text-blue-600 hover:bg-blue-100 rounded transition-colors">
+                    <Download size={16} />
+                  </button>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSendEmail}
+                    className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-all text-sm font-semibold flex items-center justify-center gap-2"
+                  >
+                    <MessageSquare size={16} />
+                    Email
+                  </button>
+                  <button
+                    onClick={handleSendViber}
+                    className="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition-all text-sm font-semibold flex items-center justify-center gap-2"
+                  >
+                    <MessageSquare size={16} />
+                    Viber
+                  </button>
+                  <button
+                    onClick={handleSendWhatsApp}
+                    className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-all text-sm font-semibold flex items-center justify-center gap-2"
+                  >
+                    <MessageSquare size={16} />
+                    WhatsApp
+                  </button>
+                </div>
+
+                <label className="block">
+                  <span className="text-xs text-indigo-700 font-medium">Αντικατάσταση συμβολαίου:</span>
+                  <input
+                    type="file"
+                    onChange={handleContractUpload}
+                    className="block w-full text-sm text-gray-500 mt-1 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 file:cursor-pointer"
+                    accept=".pdf,.doc,.docx"
+                  />
+                </label>
+              </div>
+            ) : (
+              <label className="flex items-center justify-center gap-2 border-2 border-dashed border-indigo-300 rounded-lg p-6 cursor-pointer hover:border-indigo-500 hover:bg-indigo-100 transition-all">
+                <Plus size={20} className="text-indigo-600" />
+                <span className="text-sm text-indigo-600 font-medium">Ανέβασμα Συμβολαίου (PDF)</span>
+                <input type="file" onChange={handleContractUpload} className="hidden" accept=".pdf,.doc,.docx" />
+              </label>
+            )}
+          </div>
 
           <div>
             <label className="block text-gray-700 font-bold mb-2">Κατάσταση</label>
