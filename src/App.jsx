@@ -27,7 +27,10 @@ const sb = async (path, method = 'GET', body = null) => {
     if (!res.ok) { console.warn('Supabase error', res.status, await res.text()); return null; }
     const text = await res.text();
     return text ? JSON.parse(text) : [];
-  } catch (e) { console.warn('Supabase fetch failed:', e); return null; }
+  } catch (e) { 
+    console.error('Supabase fetch failed:', e); 
+    throw e; 
+  }
 };
 
 const exportBackupJSON = () => {
@@ -65,7 +68,7 @@ const importBackupJSON = (file) => {
 
 const exportToExcel = (customers, users, customFields) => {
   const data = customers.map(c => {
-    const agent = users.find(u => u.id === c.agentId);
+    const agent = users?.find(u => u.id === c.agentId);
     const row = {
       'ID': c.id,
       'Όνομα': c.name || '',
@@ -74,7 +77,7 @@ const exportToExcel = (customers, users, customFields) => {
       'Τηλέφωνο': c.phone || '',
       'Email': c.email || '',
       'Πάροχος': c.provider || '',
-      'Agent': agent ? agent.name : c.agentName || '',
+      'Agent': agent?.name || c.agentName || 'N/A',
       'Διεύθυνση Εγκατάστασης': c.installationAddress || '',
       'Διεύθυνση Τιμολόγησης': c.billingAddress || '',
       'Ημ/νία Υποβολής': c.submissionDate || '',
@@ -455,20 +458,30 @@ const LoginPage = ({ onLogin }) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-    const user = await API.login(email, password);
-    if (user) {
-      onLogin(user);
-    } else {
-      setError('Λάθος email ή κωδικός');
+    try {
+      const user = await API.login(email, password);
+      if (user) {
+        onLogin(user);
+      } else {
+        setError('Λάθος email ή κωδικός');
+      }
+    } catch (err) {
+      setError('Σφάλμα σύνδεσης. Δοκιμάστε ξανά.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleGoogleLogin = async () => {
     setLoading(true);
-    const user = await API.googleLogin();
-    onLogin(user);
-    setLoading(false);
+    try {
+      const user = await API.googleLogin();
+      onLogin(user);
+    } catch (err) {
+      setError('Σφάλμα σύνδεσης Google. Δοκιμάστε ξανά.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -2490,181 +2503,6 @@ const CustomFieldsManagement = () => {
                 </datalist>
               </div>
 
-           // ═══════════════════════════════════════════════════════════════
-// FIX #2: DASHBOARD NAVIGATION
-// ═══════════════════════════════════════════════════════════════
-// ΟΔΗΓΙΕΣ:
-// 1. Άνοιξε το App.jsx
-// 2. Μέσα στο Dashboard component, βρες το <nav> section
-// 3. Μέσα στο <nav>, βρες το: <div className="flex items-center gap-2">
-// 4. ΑΝΤΙΚΑΤΕΣΤΗΣΕ από το <div> μέχρι το κλείσιμό του </div>
-//    με το παρακάτω code:
-// ═══════════════════════════════════════════════════════════════
-
-<div className="flex items-center gap-2">
-  {user.role === 'agent' && (
-    <>
-      <button
-        onClick={() => { setView('list'); setEditingCustomer(null); }}
-        className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-          view === 'list'
-            ? 'bg-slate-900 text-white'
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-        }`}
-      >
-        <Grid size={18} />
-        Πελάτες
-      </button>
-      <button
-        onClick={() => { setView('new'); setEditingCustomer(null); }}
-        className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-          view === 'new'
-            ? 'bg-slate-900 text-white'
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-        }`}
-      >
-        <Plus size={18} />
-        Νέος
-      </button>
-    </>
-  )}
-
-  {(user.role === 'supervisor' || user.role === 'partner') && (
-    <>
-      <button
-        onClick={() => setView('list')}
-        className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-          view === 'list'
-            ? 'bg-slate-900 text-white'
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-        }`}
-      >
-        <Grid size={18} />
-        Πελάτες
-      </button>
-      <button
-        onClick={() => setView('users')}
-        className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-          view === 'users'
-            ? 'bg-slate-900 text-white'
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-        }`}
-      >
-        <Users size={18} />
-        Χρήστες
-      </button>
-    </>
-  )}
-
-  {user.role === 'director' && (
-    <>
-      <button
-        onClick={() => setView('list')}
-        className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-          view === 'list'
-            ? 'bg-slate-900 text-white'
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-        }`}
-      >
-        <Grid size={18} />
-        Πελάτες
-      </button>
-      <button
-        onClick={() => setView('users')}
-        className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-          view === 'users'
-            ? 'bg-slate-900 text-white'
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-        }`}
-      >
-        <Users size={18} />
-        Χρήστες
-      </button>
-      <button
-        onClick={() => setView('fields')}
-        className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-          view === 'fields'
-            ? 'bg-slate-900 text-white'
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-        }`}
-      >
-        <Settings size={18} />
-        Πεδία
-      </button>
-    </>
-  )}
-
-  {user.role === 'back_office' && (
-    <button
-      onClick={() => setView('list')}
-      className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-        view === 'list'
-          ? 'bg-slate-900 text-white'
-          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-      }`}
-    >
-      <FileText size={18} />
-      Αιτήσεις
-    </button>
-  )}
-
-  {user.role === 'admin' && (
-    <>
-      <button
-        onClick={() => setView('admin')}
-        className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-          view === 'admin'
-            ? 'bg-slate-900 text-white'
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-        }`}
-      >
-        <User size={18} />
-        Admin Panel
-      </button>
-      <button
-        onClick={() => setView('users')}
-        className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-          view === 'users'
-            ? 'bg-slate-900 text-white'
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-        }`}
-      >
-        <Users size={18} />
-        Δημιουργία Χρηστών
-      </button>
-      <button
-        onClick={() => setView('fields')}
-        className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-          view === 'fields'
-            ? 'bg-slate-900 text-white'
-            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-        }`}
-      >
-        <Settings size={18} />
-        Πεδία
-      </button>
-    </>
-  )}
-
-  <button
-    onClick={() => {
-      if (window.confirm('Είστε σίγουρος ότι θέλετε να αποσυνδεθείτε;')) {
-        window.location.reload();
-      }
-    }}
-    className="ml-2 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-all"
-  >
-    Έξοδος
-  </button>
-</div>
-
-// ═══════════════════════════════════════════════════════════════
-// ΑΠΟΤΕΛΕΣΜΑ:
-// ✅ Admin: Βλέπει "Admin Panel" + "Δημιουργία Χρηστών" + "Πεδία" (1 φορά!)
-// ✅ Director: Βλέπει "Πελάτες" + "Χρήστες" + "Πεδία" (1 φορά!)
-// ✅ Όλοι: Καθαρό UI χωρίς duplicates
-// ═══════════════════════════════════════════════════════════════
-
 
               {formData.type === 'text' && (
                 <div className="bg-blue-50 rounded-xl border border-blue-200 p-4">
@@ -3188,7 +3026,9 @@ function App() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    initializeDemoData();
+    if (import.meta.env.DEV) {
+      initializeDemoData();
+    }
     syncDemoDataToCloud();
   }, []);
 
