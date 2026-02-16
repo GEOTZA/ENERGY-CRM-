@@ -2224,6 +2224,44 @@ const UserManagement = ({ user, users, onCreateUser }) => {
   );
 };
 
+
+        <div className="space-y-3">
+          <h3 className="text-lg font-bold text-gray-800 mb-3">
+            {user.role === 'admin' || user.role === 'director' ? 'Όλοι οι Χρήστες' : 'Οι Χρήστες μου'}
+          </h3>
+          {myUsers.map(u => (
+            <div
+              key={u.id}
+              className="border-2 border-gray-200 rounded-xl p-4 hover:border-blue-300 transition-all"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">{u.name}</h3>
+                  <p className="text-sm text-gray-600">{u.email}</p>
+                  {u.superUserId && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Reports to: {users.find(su => su.id === u.superUserId)?.name || 'Unknown'}
+                    </p>
+                  )}
+                </div>
+                <span className="text-xs px-3 py-1 rounded-full bg-blue-100 text-blue-800 border-2 border-blue-200 font-semibold">
+                  {u.role}
+                </span>
+              </div>
+            </div>
+          ))}
+
+          {myUsers.length === 0 && (
+            <div className="text-center py-12 text-gray-400">
+              Δεν έχετε χρήστες ακόμα
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
         <div className="space-y-3">
           {myUsers.map(u => (
             <div
