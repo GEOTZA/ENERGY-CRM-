@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Download, Plus, Trash2, Copy, Check, MessageSquare, X, Edit2, Filter, User, Users, Grid, FileText, Settings } from 'lucide-react';
 import * as XLSX from 'xlsx';
-
 // ============================================================
 // SUPABASE CONFIG
 // ============================================================
