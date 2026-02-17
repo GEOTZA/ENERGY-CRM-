@@ -5,8 +5,8 @@ import * as XLSX from 'xlsx';
 // ============================================================
 // SUPABASE CONFIG
 // ============================================================
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_URL = 'https://svrwybfxtcibqwijltwh.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2cnd5YmZ4dGNpYnF3aWpsdHdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0NzUzNDcsImV4cCI6MjA4NjA1MTM0N30.gYO5vyfV0KKUc3qWbUx5_eGW7q7BB5T7NtkOBs3LQWc';
 
 const cloudEnabled = () => !!(SUPABASE_URL && SUPABASE_KEY);
 
